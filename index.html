@@ -1,0 +1,617 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Heatwave 2048</title>
+<style>
+  /* Layout: name gate → main = board stacked over a leaderboard. Arcade heat theme. */
+  :root {
+    --bg: #ece7df;
+    --surface: #f7f4ee;
+    --board: #b9ad9c;
+    --cell: #cfc5b4;
+    --fg: #2a2521;
+    --muted: #7c7064;
+    --accent: #d8471f;
+    --line: #d9d0c2;
+    --grid-gap: 2.6%;
+    --radius: 10px;
+    --shadow: 0 10px 30px rgba(40,30,20,.14);
+    --font-display: "Archivo", system-ui, sans-serif;
+    --font-body: "Archivo", system-ui, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #17140f; --surface: #201b14; --board: #2c251b; --cell: #38301f;
+      --fg: #f3ece0; --muted: #a79a86; --accent: #ff6a3d; --line: #3a3326;
+      --shadow: 0 10px 34px rgba(0,0,0,.5); color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #17140f; --surface: #201b14; --board: #2c251b; --cell: #38301f;
+    --fg: #f3ece0; --muted: #a79a86; --accent: #ff6a3d; --line: #3a3326;
+    --shadow: 0 10px 34px rgba(0,0,0,.5); color-scheme: dark;
+  }
+
+  /* minimal reset (kept so the standalone Render build matches the in-chat build) */
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body { margin: 0; }
+  img { max-width: 100%; }
+  [hidden] { display: none !important; }
+
+  body {
+    background: var(--bg);
+    color: var(--fg);
+    font-family: var(--font-body);
+    font-size: 14px;
+    display: flex;
+    justify-content: center;
+    align-items: flex-start;
+    padding-inline: 16px;
+    padding-block: clamp(20px, 5vh, 56px);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .app { width: 100%; max-width: 480px; }
+
+  /* ---------- Name gate ---------- */
+  .gate {
+    position: fixed; inset: 0; z-index: 20;
+    display: flex; align-items: center; justify-content: center;
+    padding: 24px; background: var(--bg);
+  }
+  .gate-card { width: 100%; max-width: 340px; display: flex; flex-direction: column; gap: 14px; text-align: center; }
+  .logo {
+    margin: 0 0 2px; font-family: var(--font-display); font-weight: 800;
+    font-size: clamp(34px, 12vw, 52px); letter-spacing: -0.03em; line-height: 0.95; text-wrap: balance;
+  }
+  .logo .flare { color: var(--accent); }
+  .gate-sub { margin: 0; color: var(--muted); font-size: 13px; letter-spacing: 0.03em; }
+  .field {
+    font-family: var(--font-display); font-weight: 700; font-size: 22px; text-align: center;
+    padding: 14px 10px; border-radius: var(--radius);
+    border: 2px solid var(--line); background: var(--surface); color: var(--fg); width: 100%;
+  }
+  .field:focus-visible { outline: none; border-color: var(--accent); }
+
+  .btn {
+    font-family: var(--font-display); font-weight: 700; font-size: 15px; letter-spacing: 0.02em;
+    color: #fff; background: var(--accent); border: none; border-radius: var(--radius);
+    padding: 13px 20px; cursor: pointer; transition: transform .08s ease, filter .15s ease;
+  }
+  .btn:hover { filter: brightness(1.07); }
+  .btn:active { transform: translateY(1px); }
+  .btn:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
+  .btn.ghost { background: transparent; color: var(--muted); border: 1.5px solid var(--line); padding: 10px 14px; font-size: 13px; }
+  .btn.ghost:hover { filter: none; color: var(--fg); border-color: var(--muted); }
+  .btn.small { padding: 7px 12px; font-size: 12px; }
+
+  /* ---------- Main ---------- */
+  .main { display: flex; flex-direction: column; gap: 16px; }
+  header { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+  .title-block { min-width: 0; }
+  header h1 { margin: 0; font-family: var(--font-display); font-weight: 800; font-size: clamp(28px, 9vw, 44px); letter-spacing: -0.03em; line-height: 0.92; }
+  header h1 .flare { color: var(--accent); }
+  .whoami { margin: 6px 0 0; color: var(--muted); font-size: 12.5px; letter-spacing: 0.03em; }
+  .whoami b { color: var(--fg); font-weight: 700; }
+
+  .scores { display: flex; gap: 10px; }
+  .score { background: var(--board); border-radius: var(--radius); padding: 8px 15px; text-align: center; min-width: 72px; }
+  .score .label { display: block; font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: #fff; opacity: .8; font-weight: 700; }
+  .score .val { display: block; font-family: var(--font-display); font-weight: 800; font-size: 22px; color: #fff; font-variant-numeric: tabular-nums; line-height: 1.1; }
+  :root:not([data-theme="light"]) .score .label, :root[data-theme="dark"] .score .label { opacity: .6; }
+
+  .bar { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+  .hint { color: var(--muted); font-size: 12.5px; line-height: 1.4; min-width: 0; flex: 1 1 140px; }
+  .bar-actions { display: flex; gap: 8px; }
+
+  .board-frame {
+    position: relative; background: var(--board); border-radius: 14px;
+    padding: var(--grid-gap); width: 100%; aspect-ratio: 1 / 1;
+    box-shadow: var(--shadow); touch-action: none; user-select: none;
+  }
+  .grid-bg { position: absolute; inset: var(--grid-gap); display: grid; grid-template-columns: repeat(4,1fr); grid-template-rows: repeat(4,1fr); gap: var(--grid-gap); }
+  .grid-bg .slot { background: var(--cell); border-radius: var(--radius); }
+  .tiles { position: absolute; inset: var(--grid-gap); }
+  .tile {
+    position: absolute; display: flex; align-items: center; justify-content: center;
+    border-radius: var(--radius); font-family: var(--font-display); font-weight: 800;
+    font-variant-numeric: tabular-nums; letter-spacing: -0.02em; color: #3a2a18;
+    will-change: transform; transition: transform .12s cubic-bezier(.3,.8,.4,1);
+  }
+  .tile .num { line-height: 1; }
+  .tile.pop { animation: pop .16s ease; }
+  .tile.spawn { animation: spawn .16s ease; }
+  @keyframes pop { 0%{transform:var(--pos) scale(1)} 50%{transform:var(--pos) scale(1.14)} 100%{transform:var(--pos) scale(1)} }
+  @keyframes spawn { 0%{opacity:0; transform:var(--pos) scale(.1)} 100%{opacity:1; transform:var(--pos) scale(1)} }
+
+  .board-overlay {
+    position: absolute; inset: 0; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; gap: 12px;
+    background: color-mix(in srgb, var(--board) 84%, transparent);
+    border-radius: 14px; backdrop-filter: blur(2px); z-index: 5; text-align: center; padding: 20px;
+  }
+  .board-overlay h2 { margin: 0; font-family: var(--font-display); font-weight: 800; font-size: clamp(28px, 8vw, 40px); color: #fff; letter-spacing: -0.02em; }
+  :root:not([data-theme="light"]) .board-overlay h2, :root[data-theme="dark"] .board-overlay h2 { color: var(--fg); }
+  .board-overlay p { margin: 0; color: var(--surface); font-size: 13.5px; max-width: 26ch; }
+  :root:not([data-theme="light"]) .board-overlay p, :root[data-theme="dark"] .board-overlay p { color: var(--muted); }
+
+  /* ---------- Leaderboard ---------- */
+  .leaderboard { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 16px 16px 8px; }
+  .lb-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin-bottom: 8px; }
+  .lb-head-left { display: flex; align-items: baseline; gap: 10px; min-width: 0; }
+  .lb-head h2 { margin: 0; font-family: var(--font-display); font-weight: 800; font-size: 18px; letter-spacing: -0.01em; }
+  .lb-head .count { color: var(--muted); font-size: 12px; }
+  .lb-list { list-style: none; margin: 0; padding: 0; }
+  .lb-item { border-top: 1px solid var(--line); }
+  .lb-item:first-child { border-top: none; }
+  .lb-row {
+    display: grid; grid-template-columns: 26px 1fr auto; align-items: center; gap: 10px;
+    width: 100%; background: none; border: none; text-align: left; cursor: pointer;
+    padding: 12px 2px; color: inherit; font-family: inherit;
+  }
+  .lb-row:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 8px; }
+  .lb-rank { font-family: var(--font-display); font-weight: 800; font-size: 14px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .lb-item:nth-child(1) .lb-rank { color: var(--accent); }
+  .lb-name { font-family: var(--font-display); font-weight: 700; font-size: 16px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+             transition: font-size .18s ease, color .18s ease; }
+  .lb-best { font-family: var(--font-display); font-weight: 800; font-size: 16px; font-variant-numeric: tabular-nums; }
+  .lb-best small { font-weight: 600; font-size: 10px; color: var(--muted); letter-spacing: .1em; text-transform: uppercase; display: block; text-align: right; }
+
+  .lb-item.open .lb-name { font-size: 28px; color: var(--accent); white-space: normal; }
+  .lb-tries { padding: 0 2px 12px; display: flex; flex-direction: column; gap: 2px; }
+  .try { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; padding: 6px 10px; border-radius: 8px; background: var(--bg); }
+  .try-left { display: flex; align-items: baseline; gap: 10px; min-width: 0; }
+  .try-n { font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; width: 20px; }
+  .try-score { font-family: var(--font-display); font-weight: 800; font-size: 15px; font-variant-numeric: tabular-nums; }
+  .try-date { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .try.best { outline: 1.5px solid var(--accent); }
+  .lb-empty { color: var(--muted); font-size: 13px; padding: 14px 2px 18px; text-align: center; }
+
+  /* clear-leaderboard PIN row */
+  .clear-row { display: flex; gap: 8px; align-items: center; padding: 10px 2px 12px; border-top: 1px dashed var(--line); flex-wrap: wrap; }
+  .clear-row .field { font-size: 16px; letter-spacing: 0.3em; padding: 9px 10px; width: auto; flex: 1 1 110px; min-width: 0; }
+  .clear-msg { font-size: 12.5px; font-weight: 600; width: 100%; }
+  .clear-msg.err { color: var(--accent); }
+  .clear-msg.ok { color: var(--muted); }
+
+  .footer { color: var(--muted); font-size: 11.5px; text-align: center; letter-spacing: 0.03em; }
+  .storage-note { color: var(--muted); font-size: 11px; text-align: center; opacity: .8; }
+
+  @media (prefers-reduced-motion: reduce) {
+    .tile { transition: none; } .tile.pop, .tile.spawn { animation: none; }
+    .lb-name { transition: none; }
+  }
+</style>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;700;800&display=swap">
+</head>
+<body>
+<div class="app">
+
+  <!-- Name gate (first thing you see — no PIN to play) -->
+  <div class="gate" id="namegate">
+    <div class="gate-card">
+      <h1 class="logo">Heat<span class="flare">wave</span></h1>
+      <p class="gate-sub">Enter your name — it goes on the leaderboard</p>
+      <input id="player" class="field" maxlength="20" placeholder="Your name" autocomplete="off" aria-label="Player name">
+      <button class="btn" id="name-go">Start playing</button>
+    </div>
+  </div>
+
+  <!-- Main -->
+  <div class="main" id="main" hidden>
+    <header>
+      <div class="title-block">
+        <h1>Heat<span class="flare">wave</span></h1>
+        <p class="whoami">Playing as <b id="who">—</b></p>
+      </div>
+      <div class="scores">
+        <div class="score"><span class="label">Score</span><span class="val" id="score">0</span></div>
+        <div class="score"><span class="label">Your best</span><span class="val" id="best">0</span></div>
+      </div>
+    </header>
+
+    <div class="bar">
+      <div class="hint">Arrow keys or WASD to slide. Swipe on touch. Tiles heat up as they climb.</div>
+      <div class="bar-actions">
+        <button class="btn ghost" id="switch">Switch player</button>
+        <button class="btn" id="new">New game</button>
+      </div>
+    </div>
+
+    <div class="board-frame" id="frame">
+      <div class="grid-bg" id="gridbg"></div>
+      <div class="tiles" id="tiles"></div>
+      <div class="board-overlay" id="overlay" hidden>
+        <h2 id="over-title">You win</h2>
+        <p id="over-msg"></p>
+        <button class="btn" id="over-btn">Play again</button>
+      </div>
+    </div>
+
+    <div class="footer" id="peak"></div>
+
+    <section class="leaderboard">
+      <div class="lb-head">
+        <div class="lb-head-left">
+          <h2>Leaderboard</h2>
+          <span class="count" id="lb-count"></span>
+        </div>
+        <button class="btn ghost small" id="clear-toggle">Clear</button>
+      </div>
+      <ol class="lb-list" id="lb-list"></ol>
+      <p class="lb-empty" id="lb-empty" hidden>No games finished yet. Play one to get on the board.</p>
+
+      <div class="clear-row" id="clear-row" hidden>
+        <input id="clear-pin" class="field" inputmode="numeric" maxlength="6" placeholder="PIN" autocomplete="off" aria-label="PIN to clear the leaderboard">
+        <button class="btn small" id="clear-go">Clear board</button>
+        <button class="btn ghost small" id="clear-cancel">Cancel</button>
+        <p class="clear-msg" id="clear-msg" hidden></p>
+      </div>
+    </section>
+
+    <p class="storage-note" id="storage-note"></p>
+  </div>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  const PIN = "160417";       // only needed to CLEAR the leaderboard — not to play
+  const SIZE = 4;
+  const GAPPCT = 2.6;
+
+  const $ = (id) => document.getElementById(id);
+
+  /* ---------------- storage layer ----------------
+     Uses the /api/scores backend when one is running (the Render build).
+     Falls back to this browser's localStorage otherwise (e.g. in chat). */
+  let backendOK = null;
+  const LS_KEY = "heatwave_scores_v1";
+
+  function localLoad() { try { return JSON.parse(localStorage.getItem(LS_KEY) || "[]"); } catch (e) { return []; } }
+  function localSave(list) { try { localStorage.setItem(LS_KEY, JSON.stringify(list)); } catch (e) {} }
+
+  async function loadScores() {
+    try {
+      const r = await fetch("/api/scores", { cache: "no-store" });
+      if (r.ok) { backendOK = true; return await r.json(); }
+    } catch (e) {}
+    backendOK = false;
+    return localLoad();
+  }
+  async function addScore(entry) {
+    try {
+      const r = await fetch("/api/scores", {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(entry)
+      });
+      if (r.ok) { backendOK = true; return await r.json(); }
+    } catch (e) {}
+    backendOK = false;
+    const list = localLoad(); list.push(entry); localSave(list); return list;
+  }
+  // Returns { ok:true, list } on success, { ok:false, reason } on bad PIN / error.
+  async function clearScores(pin) {
+    try {
+      const r = await fetch("/api/scores", {
+        method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pin })
+      });
+      if (r.ok) { backendOK = true; return { ok: true, list: await r.json() }; }
+      if (r.status === 403) { backendOK = true; return { ok: false, reason: "pin" }; }
+      return { ok: false, reason: "error" };
+    } catch (e) {
+      // no server — clear this browser's copy, but still enforce the PIN locally
+      backendOK = false;
+      if (pin !== PIN) return { ok: false, reason: "pin" };
+      localSave([]); return { ok: true, list: [] };
+    }
+  }
+
+  function storageLabel() {
+    if (backendOK === true) return "Scores are shared live across everyone who opens this page.";
+    if (backendOK === false) return "No server detected — scores are saved to this browser only.";
+    return "";
+  }
+
+  /* ---------------- heat ramp ---------------- */
+  const HEAT = {
+    2:["#efe7d6","#6a5c45"], 4:["#f3dcae","#6a5330"], 8:["#f4b86a","#5a3410"],
+    16:["#ef9440","#fff6ec"], 32:["#e8702a","#fff6ec"], 64:["#d8471f","#fff6ec"],
+    128:["#c22f1b","#fff6ec"], 256:["#a81d22","#fff6ec"], 512:["#8a1230","#ffe9ef"],
+    1024:["#5e0b3a","#ffe3f0"], 2048:["#2b0a3d","#ffeaa0"], 4096:["#120a2e","#b6e0ff"],
+    8192:["#06121f","#eaffff"]
+  };
+  const heat = (v) => HEAT[v] || HEAT[8192];
+  function fontFor(v) {
+    const d = String(v).length;
+    if (d <= 2) return "clamp(22px, 9vw, 42px)";
+    if (d === 3) return "clamp(18px, 7.4vw, 34px)";
+    if (d === 4) return "clamp(15px, 6vw, 28px)";
+    return "clamp(12px, 4.8vw, 22px)";
+  }
+
+  /* ---------------- board build ---------------- */
+  const gridbg = $("gridbg"), tilesEl = $("tiles"), frame = $("frame");
+  const overlay = $("overlay"), overTitle = $("over-title"), overMsg = $("over-msg"), overBtn = $("over-btn");
+  for (let i = 0; i < SIZE * SIZE; i++) { const s = document.createElement("div"); s.className = "slot"; gridbg.appendChild(s); }
+
+  let grid, score, won, keepGoing, peak, tileEls, uid, recorded, player;
+  let busy = false; // input lock: one move fully resolves (slide → spawn → loss check) before the next
+
+  function posPct(r, c) {
+    const cell = (100 - GAPPCT * (SIZE - 1)) / SIZE;
+    return { x: c * (cell + GAPPCT), y: r * (cell + GAPPCT), cell };
+  }
+  function styleTile(el, cellObj) {
+    const { x, y, cell } = posPct(cellObj.r, cellObj.c);
+    const [bg, fg] = heat(cellObj.v);
+    el.style.width = cell + "%"; el.style.height = cell + "%"; el.style.left = "0"; el.style.top = "0";
+    const tx = (x / cell) * 100, ty = (y / cell) * 100;
+    el.style.setProperty("--pos", `translate(${tx}%, ${ty}%)`);
+    el.style.transform = `translate(${tx}%, ${ty}%)`;
+    el.style.background = bg; el.style.color = fg; el.style.fontSize = fontFor(cellObj.v);
+    el.style.boxShadow = cellObj.v >= 64 ? "0 0 0 1px rgba(255,255,255,.08), 0 6px 18px rgba(216,71,31,.28)" : "none";
+    el.querySelector(".num").textContent = cellObj.v;
+  }
+  function makeTile(cellObj) {
+    const el = document.createElement("div"); el.className = "tile spawn";
+    const inner = document.createElement("span"); inner.className = "num";
+    el.appendChild(inner); tilesEl.appendChild(el); styleTile(el, cellObj);
+    el.addEventListener("animationend", () => el.classList.remove("spawn", "pop"));
+    return el;
+  }
+  function emptyGrid() { const g = []; for (let r = 0; r < SIZE; r++) { g.push([]); for (let c = 0; c < SIZE; c++) g[r].push(null); } return g; }
+  function spawn() {
+    const e = [];
+    for (let r = 0; r < SIZE; r++) for (let c = 0; c < SIZE; c++) if (!grid[r][c]) e.push([r, c]);
+    if (!e.length) return;
+    const [r, c] = e[Math.floor(Math.random() * e.length)];
+    const cellObj = { r, c, v: Math.random() < 0.9 ? 2 : 4, id: uid++ };
+    grid[r][c] = cellObj; tileEls.set(cellObj.id, makeTile(cellObj));
+  }
+  function maxTile() { let m = 0; for (let r = 0; r < SIZE; r++) for (let c = 0; c < SIZE; c++) if (grid[r][c] && grid[r][c].v > m) m = grid[r][c].v; return m; }
+  function render() {
+    peak = Math.max(peak, maxTile());
+    $("score").textContent = score;
+    $("peak").textContent = "Hottest tile this game: " + peak;
+  }
+
+  /* ---------------- move engine ---------------- */
+  let prevSnap = "";
+  function snapshot() {
+    let s = "";
+    for (let r = 0; r < SIZE; r++) for (let c = 0; c < SIZE; c++) s += (grid[r][c] ? grid[r][c].id + ":" + grid[r][c].v : "_") + ",";
+    return s;
+  }
+  function move(dir) {
+    if (busy) return;
+    if (!overlay.hidden && !keepGoing) return;
+    const horiz = dir === 0 || dir === 1;
+    const forward = dir === 1 || dir === 3;
+    let gained = 0; const merges = [];
+    const line = (i) => { const out = []; for (let j = 0; j < SIZE; j++) { const r = horiz ? i : j, c = horiz ? j : i; if (grid[r][c]) out.push(grid[r][c]); } return out; };
+    const place = (i, j, cell) => { const r = horiz ? i : j, c = horiz ? j : i; grid[r][c] = cell; if (cell) { cell.r = r; cell.c = c; } };
+
+    for (let i = 0; i < SIZE; i++) {
+      let cells = line(i); if (forward) cells.reverse();
+      const out = [];
+      for (let k = 0; k < cells.length; k++) {
+        if (k + 1 < cells.length && cells[k].v === cells[k + 1].v) {
+          const keep = cells[k], gone = cells[k + 1];
+          keep.v *= 2; gained += keep.v;
+          if (keep.v > peak) peak = keep.v;
+          if (keep.v === 2048 && !won) won = true;
+          merges.push({ keep, gone }); out.push(keep); k++;
+        } else out.push(cells[k]);
+      }
+      for (let j = 0; j < SIZE; j++) place(i, j, null);
+      const seq = forward ? out.slice().reverse() : out;
+      const base = forward ? SIZE - seq.length : 0;
+      for (let m = 0; m < seq.length; m++) place(i, base + m, seq[m]);
+    }
+
+    const moved = merges.length > 0 || snapshot() !== prevSnap;
+    if (!moved) return;
+
+    busy = true;
+    for (let r = 0; r < SIZE; r++) for (let c = 0; c < SIZE; c++) {
+      const cell = grid[r][c]; if (cell) { const el = tileEls.get(cell.id); if (el) styleTile(el, cell); }
+    }
+    merges.forEach(({ keep, gone }) => {
+      const goneEl = tileEls.get(gone.id), keepEl = tileEls.get(keep.id);
+      if (goneEl) { styleTile(goneEl, { r: keep.r, c: keep.c, v: gone.v }); setTimeout(() => { goneEl.remove(); tileEls.delete(gone.id); }, 120); }
+      if (keepEl) setTimeout(() => { styleTile(keepEl, keep); keepEl.classList.remove("pop"); void keepEl.offsetWidth; keepEl.classList.add("pop"); }, 110);
+    });
+
+    score += gained;
+    setTimeout(() => { spawn(); render(); checkEnd(); busy = false; }, 130);
+    render();
+  }
+  function canMove() {
+    for (let r = 0; r < SIZE; r++) for (let c = 0; c < SIZE; c++) {
+      if (!grid[r][c]) return true;
+      const v = grid[r][c].v;
+      if (c + 1 < SIZE && grid[r][c + 1] && grid[r][c + 1].v === v) return true;
+      if (r + 1 < SIZE && grid[r + 1][c] && grid[r + 1][c].v === v) return true;
+    }
+    return false;
+  }
+
+  let overMode = "restart";
+  function checkEnd() {
+    if (won && !keepGoing) {
+      recordTry();
+      overTitle.textContent = "2048!";
+      overMsg.textContent = "You hit it — that's on the board. Keep going for a hotter peak, or start fresh.";
+      overBtn.textContent = "Keep going"; overMode = "continue"; overlay.hidden = false;
+      return;
+    }
+    if (!canMove()) {
+      recordTry();
+      overTitle.textContent = "Burned out";
+      overMsg.textContent = "No moves left. Final score " + score + ", hottest tile " + peak + ".";
+      overBtn.textContent = "Play again"; overMode = "restart"; overlay.hidden = false;
+    }
+  }
+
+  async function recordTry() {
+    if (recorded || score <= 0) return;
+    recorded = true;
+    const list = await addScore({ name: player, score: score, ts: Date.now() });
+    renderLeaderboard(list); updatePersonalBest(list);
+    $("storage-note").textContent = storageLabel();
+  }
+
+  function newGame() {
+    grid = emptyGrid(); tilesEl.innerHTML = ""; tileEls = new Map();
+    score = 0; won = false; keepGoing = false; peak = 0; uid = 1; recorded = false; busy = false;
+    overlay.hidden = true; spawn(); spawn(); render();
+  }
+
+  /* ---------------- leaderboard ---------------- */
+  function groupByPlayer(list) {
+    const map = new Map();
+    list.forEach((e) => {
+      const n = (e.name || "—").trim() || "—";
+      if (!map.has(n)) map.set(n, []);
+      map.get(n).push({ score: e.score | 0, ts: e.ts || 0 });
+    });
+    const players = [];
+    map.forEach((tries, name) => {
+      tries.sort((a, b) => b.ts - a.ts);
+      const best = tries.reduce((m, t) => Math.max(m, t.score), 0);
+      players.push({ name, tries, best, games: tries.length });
+    });
+    players.sort((a, b) => b.best - a.best || a.name.localeCompare(b.name));
+    return players;
+  }
+  const fmtDate = (ts) => {
+    try { return new Intl.DateTimeFormat("en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }).format(new Date(ts)); }
+    catch (e) { return new Date(ts).toLocaleString(); }
+  };
+
+  let openName = null, lastList = [];
+  function renderLeaderboard(list) {
+    lastList = list;
+    const players = groupByPlayer(list);
+    const ol = $("lb-list"); ol.innerHTML = "";
+    $("lb-count").textContent = players.length ? players.length + (players.length === 1 ? " player" : " players") : "";
+    $("lb-empty").hidden = players.length > 0;
+
+    players.forEach((p, idx) => {
+      const li = document.createElement("li");
+      li.className = "lb-item" + (p.name === openName ? " open" : "");
+      const row = document.createElement("button");
+      row.className = "lb-row"; row.type = "button";
+      row.setAttribute("aria-expanded", p.name === openName ? "true" : "false");
+      row.innerHTML = '<span class="lb-rank">' + (idx + 1) + '</span><span class="lb-name"></span>' +
+        '<span class="lb-best">' + p.best + '<small>best</small></span>';
+      row.querySelector(".lb-name").textContent = p.name;
+      row.addEventListener("click", () => { openName = (openName === p.name) ? null : p.name; renderLeaderboard(list); });
+      li.appendChild(row);
+
+      if (p.name === openName) {
+        const wrap = document.createElement("div"); wrap.className = "lb-tries";
+        const byScore = p.tries.slice().sort((a, b) => b.score - a.score);
+        const bestTs = byScore.length ? byScore[0].ts : null;
+        p.tries.forEach((t, i) => {
+          const d = document.createElement("div");
+          d.className = "try" + (t.ts === bestTs && t.score === p.best ? " best" : "");
+          d.innerHTML = '<span class="try-left"><span class="try-n">#' + (p.tries.length - i) + '</span>' +
+            '<span class="try-score">' + t.score + '</span></span><span class="try-date">' + fmtDate(t.ts) + '</span>';
+          wrap.appendChild(d);
+        });
+        li.appendChild(wrap);
+      }
+      ol.appendChild(li);
+    });
+  }
+  function updatePersonalBest(list) {
+    let b = 0;
+    list.forEach((e) => { if ((e.name || "").trim() === player && (e.score | 0) > b) b = e.score | 0; });
+    $("best").textContent = b;
+  }
+
+  /* ---------------- clear leaderboard (PIN-gated) ---------------- */
+  const clearRow = $("clear-row"), clearPin = $("clear-pin"), clearMsg = $("clear-msg");
+  function showClearMsg(text, kind) { clearMsg.textContent = text; clearMsg.className = "clear-msg " + kind; clearMsg.hidden = false; }
+  $("clear-toggle").addEventListener("click", () => {
+    clearRow.hidden = !clearRow.hidden;
+    if (!clearRow.hidden) { clearMsg.hidden = true; clearPin.value = ""; clearPin.focus(); }
+  });
+  $("clear-cancel").addEventListener("click", () => { clearRow.hidden = true; });
+  async function doClear() {
+    const res = await clearScores(clearPin.value.trim());
+    if (res.ok) {
+      openName = null;
+      renderLeaderboard(res.list);
+      updatePersonalBest(res.list);
+      showClearMsg("Leaderboard cleared.", "ok");
+      clearPin.value = "";
+      setTimeout(() => { clearRow.hidden = true; }, 1200);
+    } else if (res.reason === "pin") {
+      showClearMsg("Wrong PIN.", "err"); clearPin.value = ""; clearPin.focus();
+    } else {
+      showClearMsg("Couldn't reach the server — try again.", "err");
+    }
+  }
+  $("clear-go").addEventListener("click", doClear);
+  clearPin.addEventListener("keydown", (e) => { if (e.key === "Enter") doClear(); });
+
+  /* ---------------- input ---------------- */
+  const KEYS = { ArrowLeft: 0, ArrowRight: 1, ArrowUp: 2, ArrowDown: 3, a: 0, d: 1, w: 2, s: 3, A: 0, D: 1, W: 2, S: 3, h: 0, l: 1, k: 2, j: 3 };
+  function handleMove(dir) { prevSnap = snapshot(); move(dir); }
+  window.addEventListener("keydown", (e) => {
+    if ($("main").hidden) return;
+    if (document.activeElement === clearPin) return; // don't move the board while typing a PIN
+    if (e.key in KEYS) { e.preventDefault(); handleMove(KEYS[e.key]); }
+  });
+  let sx = 0, sy = 0, tracking = false;
+  frame.addEventListener("touchstart", (e) => { const t = e.changedTouches[0]; sx = t.clientX; sy = t.clientY; tracking = true; }, { passive: true });
+  frame.addEventListener("touchend", (e) => {
+    if (!tracking) return; tracking = false;
+    const t = e.changedTouches[0], dx = t.clientX - sx, dy = t.clientY - sy, ax = Math.abs(dx), ay = Math.abs(dy);
+    if (Math.max(ax, ay) < 24) return;
+    if (ax > ay) handleMove(dx > 0 ? 1 : 0); else handleMove(dy > 0 ? 3 : 2);
+  }, { passive: true });
+  let pdown = false, px = 0, py = 0;
+  frame.addEventListener("pointerdown", (e) => { if (e.pointerType === "mouse") { pdown = true; px = e.clientX; py = e.clientY; } });
+  window.addEventListener("pointerup", (e) => {
+    if (!pdown) return; pdown = false;
+    const dx = e.clientX - px, dy = e.clientY - py, ax = Math.abs(dx), ay = Math.abs(dy);
+    if (Math.max(ax, ay) < 30) return;
+    if (ax > ay) handleMove(dx > 0 ? 1 : 0); else handleMove(dy > 0 ? 3 : 2);
+  });
+
+  overBtn.addEventListener("click", () => {
+    if (overMode === "continue") { keepGoing = true; overlay.hidden = true; } else newGame();
+  });
+  $("new").addEventListener("click", newGame);
+  $("switch").addEventListener("click", () => {
+    if (!recorded && score > 0) recordTry();
+    $("main").hidden = true; $("namegate").hidden = false; $("player").value = ""; $("player").focus();
+  });
+
+  /* ---------------- name gate ---------------- */
+  async function startWithName() {
+    const n = $("player").value.trim();
+    if (!n) { $("player").focus(); return; }
+    player = n; $("who").textContent = player;
+    $("namegate").hidden = true; $("main").hidden = false;
+    newGame();
+    const list = await loadScores();
+    renderLeaderboard(list); updatePersonalBest(list);
+    $("storage-note").textContent = storageLabel();
+  }
+  $("name-go").addEventListener("click", startWithName);
+  $("player").addEventListener("keydown", (e) => { if (e.key === "Enter") startWithName(); });
+
+  $("player").focus();
+})();
+</script>
+</body>
+</html>
